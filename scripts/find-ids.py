@@ -22,7 +22,7 @@ def cu(path):
     return r.json()
 
 def clickup(list_id):
-    if not key("CLICKUP_API_TOKEN"): sys.exit("Set CLICKUP_API_TOKEN in .env first.")
+    if not key("CLICKUP_API_TOKEN"): sys.exit("No CLICKUP_API_TOKEN. Add it as a repository secret (README, step 2), or to .env for local runs.")
     if list_id:
         print(f"Custom fields on list {list_id} (Client dropdown -> clickup.client_field_id,")
         print("each option -> a client's option_id):\n")
@@ -47,7 +47,7 @@ def clickup(list_id):
 
 def fathom(days):
     fk = key("FATHOM_API_KEY")
-    if not fk: sys.exit("Set FATHOM_API_KEY in .env first.")
+    if not fk: sys.exit("No FATHOM_API_KEY. Add it as a repository secret (README, step 2), or to .env for local runs.")
     meetings = fathom_meetings(fk, days, include_action_items=False)
     by_title = defaultdict(lambda: {"n": 0, "domains": set(), "last": ""})
     for m in meetings:

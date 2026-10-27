@@ -16,7 +16,7 @@ with them.
 | Audit script | `scripts/audit-tasks.py` |
 | Id finder | `scripts/find-ids.py` (read-only: ClickUp user/list/field ids, Fathom titles and domains) |
 | Settings | `config.json` (who you are, internal meetings, clients, ClickUp ids, model) |
-| Workflows | `Fathom to ClickUp` (morning + evening slots), `Audit created tasks` (on demand) |
+| Workflows | `Fathom to ClickUp` (morning + evening slots), `Audit created tasks` and `Find IDs` (on demand) |
 | Dedup state | `state/fathom_clickup_done.json` (hashes, committed after every run) |
 | Task ledger | `state/created_tasks.jsonl` (one line per created task) |
 | Audit output | `reports/audit-YYYY-MM-DD.md`, `reports/audit-latest.json`, `reports/client-options.json`, `reports/client-lists.json` |
@@ -61,7 +61,8 @@ gh workflow run fathom-to-clickup.yml -R $R -f only=items -f days=2
 - **Add a client.** Add an entry to `clients` in `config.json`: `name`, `list_id`,
   `option_id`, `aliases` (keywords, including the ways Fathom mishears the name),
   `domains` (attendee email domains, for the watch pass) and `track_mentions` (for the
-  mention pass). Get the ids from `python scripts/find-ids.py clickup`, or from
+  mention pass). Get the ids from `gh workflow run find-ids.yml -R $R -f what=clickup`
+  (or `python scripts/find-ids.py clickup` with a local `.env`), or from
   `reports/client-lists.json` and `reports/client-options.json` after an audit.
 - **Fix a misroute.** The ClickUp API can't move tasks between lists. Move it in the UI,
   or recreate it in the right list and delete the original. Ask before deleting.

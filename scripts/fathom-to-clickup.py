@@ -309,7 +309,8 @@ def main():
     ap.add_argument("--only", choices=["both", "items", "watch", "mentions", "all"], default="both")
     a = ap.parse_args()
     if not FATHOM_KEY or (a.commit and not CLICKUP_TOK):
-        sys.exit("Missing FATHOM_API_KEY or CLICKUP_API_TOKEN (repo .env, or GitHub Actions secrets)")
+        sys.exit("Missing FATHOM_API_KEY or CLICKUP_API_TOKEN. Add them as repository secrets "
+                 "(README, step 2), or to .env for local runs.")
     want_items    = a.only in ("both", "items", "all")
     want_watch    = a.only in ("both", "watch", "all")
     want_mentions = a.only in ("mentions", "all")

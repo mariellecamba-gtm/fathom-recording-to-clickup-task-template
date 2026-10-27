@@ -36,51 +36,73 @@ dropdown custom field, it gets set too. A dedup file means reruns never double-c
 
 | | What for | Cost |
 |---|---|---|
-| **Fathom** with API access | reading your meetings | your existing plan |
-| **ClickUp** personal API token | creating tasks | your existing plan |
+| **Fathom** | reading your meetings | your existing plan |
+| **ClickUp** | creating tasks | your existing plan |
 | **Anthropic API key** (optional) | pass 3, and pass 1's fallback for items with no client name | pennies per run, see [Costs](#costs) |
 | **GitHub account** | running it on a schedule | free; a private repo uses roughly 150 of the 2,000 free Actions minutes a month |
 
 Without an Anthropic key, passes 1 and 2 still run. Pass 1 then routes by client name
 only.
 
+**No terminal needed.** Every step below happens in your browser, on github.com. If you'd
+rather use a terminal, see [Run it on your computer](#run-it-on-your-computer).
+
 ## Setup
 
-### 1. Make your own copy
+About 20 minutes.
 
-Click **Use this template**, then **Create a new repository**. **Make it private.** Your
-`config.json` will list your clients' names and email domains. It holds no keys, but
-your client list is still your business.
+### 1. Make your own private copy
 
-```bash
-git clone https://github.com/<you>/<your-copy>.git
-cd <your-copy>
-python3 -m venv .venv && source .venv/bin/activate     # Python 3.10 or newer
-pip install -r requirements.txt
-cp .env.example .env
-```
+At the top of this page, click **Use this template**, then **Create a new repository**.
+Choose **Private**. Your config will list your clients' names and email domains, and
+the pages for each run show your meeting titles. None of that is a key, but it's still
+your business.
 
-### 2. Get your keys
+### 2. Add your keys
 
-Put them in `.env` (for running locally). `.env` is in `.gitignore` and never gets
-committed.
+In your new repository, go to **Settings**, then **Secrets and variables**, then
+**Actions**, and click **New repository secret**. Add each key under exactly this name:
 
-- **Fathom:** in Fathom, Settings, then API Access. The key sees the recordings your
-  Fathom account can see.
-- **ClickUp:** in ClickUp, Settings, then Apps, then API Token. It starts with `pk_`.
-- **Anthropic** (optional): create a key in the Claude Console.
+| Secret name | Where to get it |
+|---|---|
+| `FATHOM_API_KEY` | In Fathom, open your User Settings and find **API Access** ([direct link](https://fathom.video/customize#api-access-header)), then generate a key. It sees the meetings you recorded and the ones shared with you or your team. |
+| `CLICKUP_API_TOKEN` | In ClickUp, click your avatar, then **Settings**, then **Apps**. Under **API Token**, click **Generate** and copy it. It starts with `pk_`. |
+| `ANTHROPIC_API_KEY` | Optional. Create one under [API keys in the Claude Console](https://platform.claude.com/settings/keys). |
 
-### 3. Fill in `config.json`
+GitHub never shows a secret again after you save it, and secrets are hidden in run logs.
 
-```bash
-cp config.example.json config.json
-python scripts/find-ids.py clickup             # your user id, and every space, folder and list id
-python scripts/find-ids.py clickup --list ID   # a list's dropdown fields and option ids
-python scripts/find-ids.py fathom --days 14    # your recent meeting titles and attendee domains
-```
+### 3. Look up your IDs
 
-`find-ids.py` is read-only. Copy what it prints into `config.json`, then delete the
-`"_example": true` line. The script refuses to run while that line is there.
+Open the **Actions** tab. If GitHub asks you to enable workflows, click the green button.
+Then click **Find IDs** on the left, then **Run workflow**. It only reads. Run it up to
+three times:
+
+1. **`what: clickup`.** This lists your ClickUp user id and every space, folder and list
+   id. Note the list for each client and the list for tasks with no client.
+2. **`what: clickup`, with `list_id` set to one of your client lists.** This shows that
+   list's dropdown fields: the Client field's id and each client's option id. Skip this
+   if you don't use a Client dropdown.
+3. **`what: fathom`.** This lists your recent meeting titles and the email domains that
+   attended each one. Use it to pick your internal meetings and each client's domain.
+
+Each run takes under a minute. Click the finished run to see the results on its summary
+page.
+
+### 4. Create `config.json`
+
+1. In your repository, open `config.example.json` and click the copy icon (top right of
+   the file) to copy all of it.
+2. Go back to the main page of the repository, click **Add file**, then
+   **Create new file**, and name it `config.json`.
+3. Paste, then replace the example values with yours. The table below says what each one
+   is.
+4. Delete the line `"_example": true,`. Until you do, the script refuses to run, so the
+   example values can never file real tasks.
+5. Click **Commit changes**.
+
+JSON is fussy about punctuation. Keep the double quotes around text, put a comma between
+items but not after the last one, and write `null` (no quotes) for "none". If you get
+one wrong, the test run in step 5 names the line.
 
 | Key | What it is |
 |---|---|
@@ -105,26 +127,29 @@ python scripts/find-ids.py fathom --days 14    # your recent meeting titles and 
 | `clients[].domains` | Attendee email domains. A call with someone from one of them gets a pass 2 "Watch call" task. `[]` turns this off for the client. |
 | `clients[].track_mentions` | `true` to include this client in the pass 3 scan. |
 
-### 4. Try it locally
+To change `config.json` later, open it on GitHub and click the pencil icon.
 
-A dry run is the default. It reads Fathom and prints what it would file, and creates
-nothing.
+### 5. Do a test run
 
-```bash
-python scripts/fathom-to-clickup.py --only all --days 7            # dry run
-python scripts/fathom-to-clickup.py --only all --days 7 --commit   # create the tasks
-```
+In **Actions**, click **Fathom to ClickUp**, then **Run workflow**. Tick **dry_run** and
+run it. Open the finished run, then the **File tasks** step. It lists every task it
+would create and the list each one would go to, and creates nothing in ClickUp.
 
-### 5. Turn on the schedule
+If something is off, fix `config.json` and run it again. Common fixes:
 
-1. Commit `config.json` (in your private copy) and push.
-2. Add the three keys as repository secrets under Settings, then Secrets and variables,
-   then Actions: `FATHOM_API_KEY`, `CLICKUP_API_TOKEN` and, optionally,
-   `ANTHROPIC_API_KEY`.
-3. Under Actions, enable workflows if GitHub asks, then open **Fathom to ClickUp**, click
-   **Run workflow** and tick `dry_run` once to check the output.
+| The log says | Fix |
+|---|---|
+| `config.json is not valid JSON: ... line 12 column 5` | A missing comma or quote just before line 12, or a comma after the last item in a list |
+| `config.json still holds the example values` | Delete the `"_example": true,` line |
+| `Missing FATHOM_API_KEY or CLICKUP_API_TOKEN` | A secret is missing or misnamed (step 2) |
+| `Fathom rejected FATHOM_API_KEY` | Generate a new Fathom key and replace the secret |
+| An item went to `UNROUTED` | Add the client, or the way Fathom spelled it, to that client's `aliases` |
+| No tasks at all | Check `me.fathom_email` and that `internal_meetings` matches the titles from step 3 exactly |
 
-After every run, the workflow commits `state/` back to the repo. That's the dedup
+When the dry run looks right, you're done. From now on it runs every day by itself. You
+can also run it once without dry_run to file today's tasks straight away.
+
+After every run, the workflow commits `state/` back to the repository. That's the dedup
 memory, because runners start empty. It also counts as repo activity, and GitHub turns
 off scheduled workflows in a repo that has had none for 60 days.
 
@@ -139,15 +164,39 @@ a few seconds.
 
 To use your own timezone and times:
 
-1. Set repository **variables** (not secrets): `TIMEZONE` (for example
+1. Set repository **variables** (not secrets), under Settings, then Secrets and
+   variables, then Actions, then the **Variables** tab: `TIMEZONE` (for example
    `Europe/London`), `MORNING` (for example `09:00`) and `EVENING` (for example `17:30`).
-2. In `.github/workflows/fathom-to-clickup.yml`, replace the four `cron:` lines with
-   your two times in UTC, once for summer time and once for winter. London at 09:00
-   is `0 8 * * *` in summer and `0 9 * * *` in winter. A timezone without daylight
-   saving needs only one line per slot.
+2. In `.github/workflows/fathom-to-clickup.yml` (open it on GitHub and click the pencil),
+   replace the four `cron:` lines with your two times in UTC, once for summer time and
+   once for winter. London at 09:00 is `0 8 * * *` in summer and `0 9 * * *` in winter.
+   A timezone without daylight saving needs only one line per slot.
 
 You can also run any pass by hand from the Actions tab with **Run workflow**. It takes
 `only`, `days` and a `dry_run` toggle.
+
+## Run it on your computer
+
+Everything above also works from a terminal, with Python 3.10 or newer.
+
+```bash
+git clone https://github.com/<you>/<your-copy>.git
+cd <your-copy>
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env          # put your keys in it; .env is never committed
+cp config.example.json config.json
+
+python scripts/find-ids.py clickup             # your user id, and every space, folder and list id
+python scripts/find-ids.py clickup --list ID   # a list's dropdown fields and option ids
+python scripts/find-ids.py fathom --days 14    # your recent meeting titles and attendee domains
+
+python scripts/fathom-to-clickup.py --only all --days 7            # dry run, creates nothing
+python scripts/fathom-to-clickup.py --only all --days 7 --commit   # create the tasks
+```
+
+Commit `config.json` (in your private copy) and push when you're ready for the schedule
+to use it.
 
 ## Audit, and the Claude skill
 
@@ -162,7 +211,8 @@ Every task the script creates is appended to `state/created_tasks.jsonl`. Runnin
 
 `skill/` is a Claude Code skill that runs this as a loop. It reads the audit, turns each
 signal into one small change (a new alias, a new client, a tighter prompt), dry-runs the
-change, and logs what it learned in `skill/LEARNINGS.md`. To install it:
+change, and logs what it learned in `skill/LEARNINGS.md`. To install it, from a local
+clone:
 
 ```bash
 ln -s "$PWD/skill" ~/.claude/skills/fathom-to-clickup
@@ -199,7 +249,8 @@ These are rough figures on the default model; check the current Anthropic pricin
 
 - Keys live only in your repo's secrets or your local `.env`. Neither is ever committed,
   and the scripts never print them.
-- `config.json` holds ids, emails and client names, not keys. Keep your copy private.
+- `config.json` and the run pages show ids, emails, meeting titles and client names, but
+  no keys. Keep your copy private.
 - The scripts call only `api.fathom.ai`, `api.clickup.com` and `api.anthropic.com`.
 
 ## License

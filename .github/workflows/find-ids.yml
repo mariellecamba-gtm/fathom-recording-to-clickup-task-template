@@ -1,0 +1,59 @@
+name: Find IDs
+
+# Prints the ids and names config.json needs, so setup works without a terminal.
+# Read-only: it creates and changes nothing. The results go on the run's summary
+# page. Keep your copy of this repo private: on a public repo anyone can read
+# run pages, and these list your meeting titles, lists and email domains.
+
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: "What to look up"
+        type: choice
+        options: [clickup, fathom]
+        default: clickup
+      list_id:
+        description: "ClickUp only (optional): a list id, to show its dropdown fields and option ids"
+        type: string
+        default: ""
+      days:
+        description: "Fathom only: how many days of meetings to read"
+        type: string
+        default: "14"
+
+permissions:
+  contents: read
+
+jobs:
+  find-ids:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Look up ids
+        env:
+          FATHOM_API_KEY: ${{ secrets.FATHOM_API_KEY }}
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          WHAT: ${{ inputs.what }}
+          LIST_ID: ${{ inputs.list_id }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          ARGS=("$WHAT")
+          if [ "$WHAT" = "clickup" ] && [ -n "$LIST_ID" ]; then ARGS+=(--list "$LIST_ID"); fi
+          if [ "$WHAT" = "fathom" ]; then ARGS+=(--days "$DAYS"); fi
+
+          STATUS=0
+          python scripts/find-ids.py "${ARGS[@]}" > out.txt 2>&1 || STATUS=$?
+          cat out.txt
+          # The summary page is easier to read and copy from than the log.
+          { echo "### find-ids.py ${ARGS[*]}"; echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $STATUS

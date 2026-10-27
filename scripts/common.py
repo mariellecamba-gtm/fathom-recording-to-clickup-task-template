@@ -36,7 +36,9 @@ def load_config():
         sys.exit(f"No config at {path}. Copy config.example.json to config.json and fill it in "
                  "(README, step 3).")
     try: c = json.load(open(path))
-    except json.JSONDecodeError as e: sys.exit(f"{path} is not valid JSON: {e}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"{path} is not valid JSON: {e}. Look just before that spot for a missing comma or "
+                 "quote, or a comma after the last item in a list.")
     if c.get("_example"):
         sys.exit(f"{path} still holds the example values. Put in your own, then delete the "
                  "\"_example\" line.")
