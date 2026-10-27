@@ -1,0 +1,57 @@
+name: Audit created tasks
+
+# Reads every task in state/created_tasks.jsonl back from ClickUp and commits a
+# report to reports/. It's the input the skill in skill/ learns from: what got
+# done, deleted, renamed, re-routed, or filed twice.
+# Runs on demand. The ClickUp token only exists as a repo secret, so this is
+# where the read-back has to happen.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Only tasks created on/after YYYY-MM-DD (blank = all)"
+        type: string
+        default: ""
+
+concurrency:
+  # Shares the filing workflow's group: both commit to main.
+  group: fathom-to-clickup
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Read tasks back from ClickUp
+        env:
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          if [ -n "$SINCE" ]; then
+            python scripts/audit-tasks.py --since "$SINCE"
+          else
+            python scripts/audit-tasks.py
+          fi
+
+      - name: Commit the report
+        run: |
+          git config user.name  "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git add reports/
+          git diff --staged --quiet || git commit -m "audit: $(date -u +%Y-%m-%d)"
+          git pull --rebase --autostash
+          git push

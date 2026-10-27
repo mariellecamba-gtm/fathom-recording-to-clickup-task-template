@@ -1,0 +1,158 @@
+name: Fathom to ClickUp
+
+# Files your Fathom action items into ClickUp as `From Fathom:` tasks.
+#
+# Three passes, on two daily slots:
+#   PASS 1 (items)    action items assigned to you in your internal meetings
+#   PASS 3 (mentions) transcript scan for clients one person mentions without assigning
+#   PASS 2 (watch)    "watch the call" task for any new client call
+# PASS 1 and 3 share the morning slot; PASS 2 runs in the evening.
+#
+# The slots are repository variables (Settings > Secrets and variables > Actions >
+# Variables): TIMEZONE (default America/New_York), MORNING (default 10:45) and
+# EVENING (default 18:00). If you change them, change the cron lines below to the
+# matching UTC times too. README > Schedule has the steps.
+
+on:
+  schedule:
+    # GitHub cron is UTC-only and ignores DST, so ONE entry cannot hold a fixed
+    # local time year-round. Each slot registers both of its UTC times and the
+    # guard below drops whichever is not the right local time today. The losing
+    # run is a no-op costing seconds. These four are 10:45 and 18:00 New York time.
+    - cron: "45 14 * * *"   # 10:45 EDT (summer), skipped in winter
+    - cron: "45 15 * * *"   # 10:45 EST (winter), skipped in summer
+    - cron: "0 22 * * *"    # 18:00 EDT (summer), skipped in winter
+    - cron: "0 23 * * *"    # 18:00 EST (winter), skipped in summer
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Which pass to run"
+        type: choice
+        options: [all, items, watch, mentions, both]
+        default: all
+      days:
+        description: "Lookback window in days"
+        type: string
+        default: "2"
+      dry_run:
+        description: "Fetch and match, create nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two concurrent runs race on the dedup state file and can double-create.
+  group: fathom-to-clickup
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # dedup state + heartbeat commits below
+
+jobs:
+  file-tasks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Four cron entries fire each day; exactly two of them are the right local
+      # times. Decide which pass this run is, or skip.
+      #
+      # The test is WHICH CRON FIRED, not what the clock says now: GitHub often
+      # dispatches scheduled runs hours behind their slot, so comparing the
+      # current local hour would skip every late run while reporting green.
+      - name: Pick the pass for this run
+        id: guard
+        env:
+          FIRED: ${{ github.event.schedule }}
+          TZ_NAME: ${{ vars.TIMEZONE || 'America/New_York' }}
+          MORNING: ${{ vars.MORNING || '10:45' }}
+          EVENING: ${{ vars.EVENING || '18:00' }}
+        run: |
+          # A fresh copy of the template has no config yet. Skip instead of failing
+          # every day until setup is done.
+          if [ ! -f config.json ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping: no config.json yet. See README > Setup."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "only=${{ inputs.only }}" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Proceeding: manual dispatch, --only ${{ inputs.only }}."
+            exit 0
+          fi
+
+          # The local time the cron that fired stands for, today, in TZ_NAME.
+          read -r MIN HOUR _ <<< "$FIRED"
+          UTC_HM=$(printf '%02d:%02d' "$((10#$HOUR))" "$((10#$MIN))")
+          LOCAL=$(TZ="$TZ_NAME" date -d "$(date -u +%F) $UTC_HM UTC" +%H:%M)
+          MORNING=$(date -d "$MORNING" +%H:%M); EVENING=$(date -d "$EVENING" +%H:%M)
+
+          if [ "$LOCAL" = "$MORNING" ]; then
+            # PASS 1 then PASS 3; `both` would pull in watch, so run them apart.
+            echo "only=morning" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Proceeding: cron '$FIRED' is the $MORNING $TZ_NAME slot" \
+                 "(dispatched at $(TZ="$TZ_NAME" date '+%H:%M') local)."
+          elif [ "$LOCAL" = "$EVENING" ]; then
+            echo "only=watch" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Proceeding: cron '$FIRED' is the $EVENING $TZ_NAME slot" \
+                 "(dispatched at $(TZ="$TZ_NAME" date '+%H:%M') local)."
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping: cron '$FIRED' is $LOCAL in $TZ_NAME today, not a slot."
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.should_run == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+        if: steps.guard.outputs.should_run == 'true'
+
+      - name: File tasks
+        if: steps.guard.outputs.should_run == 'true'
+        env:
+          FATHOM_API_KEY: ${{ secrets.FATHOM_API_KEY }}
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ONLY: ${{ steps.guard.outputs.only }}
+          DAYS: ${{ inputs.days || '2' }}
+        run: |
+          # --commit is what actually creates tasks; the script is dry-run by default.
+          COMMIT="--commit"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then COMMIT=""; fi
+
+          if [ "$ONLY" = "morning" ]; then
+            # PASS 3 reads the FULL transcript and costs an LLM call, so let
+            # PASS 1 finish and file first: if the scan fails, the assigned
+            # action items are already in ClickUp.
+            STATUS=0
+            python scripts/fathom-to-clickup.py --only items    --days "$DAYS" $COMMIT || STATUS=1
+            python scripts/fathom-to-clickup.py --only mentions --days "$DAYS" $COMMIT || STATUS=1
+            exit $STATUS
+          else
+            python scripts/fathom-to-clickup.py --only "$ONLY" --days "$DAYS" $COMMIT
+          fi
+
+      # The dedup state is a sha1 set in state/fathom_clickup_done.json. Runners
+      # are ephemeral, so it has to be committed back or every run re-creates the
+      # same tasks. This commit doubles as the activity heartbeat: GitHub disables
+      # a scheduled workflow after 60 days without repository activity, and its
+      # own cron runs do not count.
+      - name: Persist dedup state (and keep the schedule alive)
+        if: always() && steps.guard.outputs.should_run == 'true'
+        run: |
+          date -u +"last run: %Y-%m-%dT%H:%M:%SZ (${{ job.status }}, ${{ steps.guard.outputs.only }})" > last-run.txt
+          # Commit as the person who owns the schedule, not a bot, so each run
+          # lands on their contribution graph (bot-authored commits never count).
+          git config user.name  "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git add last-run.txt state/
+          git diff --staged --quiet || git commit -m "state: $(date -u +%Y-%m-%d)"
+          git pull --rebase --autostash
+          git push
